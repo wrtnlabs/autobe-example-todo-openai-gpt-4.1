@@ -1,0 +1,120 @@
+/// Active todo items belonging to a single user. Each todo can be created,
+/// viewed, updated, completed, or deleted only by its owner. Business rules
+/// require strong ownership enforcement, title uniqueness (incomplete todos
+/// only), field validation, full CRUD operations, and audit support through
+/// append-only deletion log. References the user in {@link
+/// todo_list_users.id}.
+///
+/// @namespace Todos
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model todo_list_todos {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// Belonged user's {@link todo_list_users.id} who owns this todo item.
+  todo_list_user_id String @db.Uuid
+  
+  /// Title of the todo item. Business constraint: required, 1–255 chars,
+  /// unique among incomplete todos for the owner.
+  title String
+  
+  /// Optional user-provided description or details for the todo. Max 1000
+  /// characters, may be empty.
+  description String?
+  
+  /// Optional due date for the todo. Must be in the future when provided, null
+  /// if unset.
+  due_date DateTime? @db.Timestamptz
+  
+  /// Whether this todo item has been marked as completed by the owner.
+  /// Defaults to false on creation. May be toggled true/false by user.
+  is_completed Boolean
+  
+  /// Timestamp when this todo was marked as completed. Null until completed.
+  completed_at DateTime? @db.Timestamptz
+  
+  /// Timestamp when the todo was created. Required for all todos.
+  created_at DateTime @db.Timestamptz
+  
+  /// Timestamp of last update to any field of the todo. Updated on every edit.
+  updated_at DateTime @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  user todo_list_users @relation(fields: [todo_list_user_id], references: [id], onDelete: Cascade)
+  
+  @@unique([todo_list_user_id, title])
+  @@index([todo_list_user_id, created_at])
+  @@index([todo_list_user_id, due_date])
+  @@index([todo_list_user_id, is_completed])
+  @@index([title(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([description(ops: raw("gin_trgm_ops"))], type: Gin)
+}
+
+/// Historical log of deleted todo items. Functions as an append-only,
+/// immutable audit log for todos deleted by users. Supports business
+/// requirement allowing users to view deleted todos for up to 30 days after
+/// removal. References both the original todo's ID and the owning user.
+/// Retains all business fields for forensic and self-service recovery/audit
+/// purposes.
+///
+/// @namespace Todos
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model todo_list_deleted_todo_logs {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// User's {@link todo_list_users.id} who originally owned the deleted todo.
+  todo_list_user_id String @db.Uuid
+  
+  /// ID of the deleted todo as it was in {@link todo_list_todos.id}. Used for
+  /// traceability and ensuring unique deletion records.
+  original_todo_id String @db.Uuid
+  
+  /// Title of the deleted todo at the time of deletion. Preserved for
+  /// user-facing audit and recovery history.
+  title String
+  
+  /// Description (if any) for the deleted todo at the time of deletion.
+  /// Preserved for audit.
+  description String?
+  
+  /// Due date for the todo at deletion, or null if unset.
+  due_date DateTime? @db.Timestamptz
+  
+  /// Completion status as it was at deletion time. For audit and possible
+  /// recovery logic.
+  is_completed Boolean
+  
+  /// When the todo was completed, as of deletion. Null if never completed.
+  completed_at DateTime? @db.Timestamptz
+  
+  /// Original creation timestamp of the todo, as persisted in {@link
+  /// todo_list_todos.created_at}.
+  created_at DateTime @db.Timestamptz
+  
+  /// Last modification timestamp of the todo before deletion, as persisted in
+  /// {@link todo_list_todos.updated_at}.
+  updated_at DateTime @db.Timestamptz
+  
+  /// Timestamp when the deletion occurred; the audit log creation time for
+  /// snapshot purposes. Required for retention window enforcement.
+  deleted_at DateTime @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  user todo_list_users @relation(fields: [todo_list_user_id], references: [id], onDelete: Cascade)
+  
+  @@unique([original_todo_id])
+  @@index([todo_list_user_id, deleted_at])
+  @@index([title(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([description(ops: raw("gin_trgm_ops"))], type: Gin)
+}
