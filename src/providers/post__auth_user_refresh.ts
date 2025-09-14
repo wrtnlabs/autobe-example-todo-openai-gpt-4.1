@@ -5,106 +5,103 @@ import { Prisma } from "@prisma/client";
 import { v4 } from "uuid";
 import { toISOStringSafe } from "../util/toISOStringSafe";
 import { ITodoListUser } from "@ORGANIZATION/PROJECT-api/lib/structures/ITodoListUser";
-import { IAuthorizationToken } from "@ORGANIZATION/PROJECT-api/lib/structures/IAuthorizationToken";
 
 /**
- * Refresh JWT authentication tokens for 'user' role using
- * todo_list_auth_sessions (refresh token operation).
+ * Refresh JWT tokens for a todo_list_user session.
  *
- * This endpoint refreshes JWT authentication tokens for an authenticated
- * 'user'. It uses the 'todo_list_auth_sessions' table to validate the provided
- * session_token (refresh token) by checking for matching, active, unexpired,
- * and non-revoked session. It also confirms the linked user exists and is not
- * soft-deleted ('deleted_at' is null). Session expiration ('expires_at') and
- * revocation logic are strictly enforced per schema and business rules,
- * ensuring users can only refresh tokens when all security conditions are
- * satisfied.
+ * This token refresh endpoint provides authenticated Todo List users a means to
+ * renew their session by presenting a valid refresh token issued during
+ * previous login or registration. It validates the refresh token, confirms its
+ * association with an existing todo_list_user, and, if valid and unexpired,
+ * issues a new set of access and refresh tokens for seamless session
+ * continuation.
  *
- * If the submitted refresh token is expired, revoked, or does not correspond to
- * a valid, active session, the operation fails with a specific error requiring
- * re-authentication via the login endpoint. Successful refreshes update
- * relevant session metadata (user_agent, ip_address) and return new JWT
- * access/refresh tokens per the established session policy. All activity is
- * logged for compliance and security review, referencing the corresponding user
- * account.
+ * Token logic is implemented per security and session policy: access tokens are
+ * short-lived (30 minutes), while refresh tokens may be valid up to 30 days,
+ * conforming to the requirements in the business documentation and permission
+ * matrix.
  *
- * Operation is only available to authenticated users presenting a valid refresh
- * token (session_token); it does not require explicit authentication on call
- * but uses token validation per security best practices. Tightly integrated
- * with the login and join/register operations to provide seamless
- * authentication for the 'user' role defined in the schema.
+ * The token refresh process is stateless regarding the underlying
+ * todo_list_user schema; it does not alter, create, or remove table records. It
+ * simply reads and verifies minimal identifying fields linked to the user's
+ * identity. No sensitive info is returned.
  *
- * @param props - Request properties
- * @param props.body - Refresh token request with session_token for the 'user'
- * @returns Refreshed JWT access and refresh tokens for the 'user' role on
- *   successful validation.
- * @throws {Error} If the session token is invalid, expired, revoked, or the
- *   user is deleted.
+ * Security and session enforcement is maintained: expired, invalid, or tampered
+ * tokens result in error responses and session invalidation, supporting robust
+ * access control.
+ *
+ * This operation is required to maintain authenticated user workflows,
+ * supporting login and join (registration) as the main entry points for session
+ * initialization.
+ *
+ * @param props - Object containing the refresh token for session renewal.
+ * @param props.body - The refresh token provided by the user for session
+ *   continuation.
+ * @returns The refreshed session credentials, including new access and refresh
+ *   tokens with updated expiry times.
+ * @throws {Error} If the refresh token is invalid, expired, malformed, or if
+ *   the user account is not found.
  */
 export async function post__auth_user_refresh(props: {
   body: ITodoListUser.IRefresh;
 }): Promise<ITodoListUser.IAuthorized> {
-  const { session_token } = props.body;
-  // 1. Find the session and its user
-  const session = await MyGlobal.prisma.todo_list_auth_sessions.findUnique({
-    where: { session_token },
-    include: { user: true },
-  });
-  if (!session) throw new Error("Session not found or invalid refresh token");
-  if (session.revoked_at !== null)
-    throw new Error("Session revoked - please login again");
-  if (session.expires_at < new Date())
-    throw new Error("Session expired - please login again");
-  if (!session.user || session.user.deleted_at !== null)
-    throw new Error("User not found or deleted");
+  const { body } = props;
 
-  const now = new Date();
-  const tokenExpiresInSecs = 60 * 60; // 1 hour
-  const refreshExpiresInSecs = 7 * 24 * 60 * 60; // 7 days
-  const expiredAtDate = new Date(now.getTime() + tokenExpiresInSecs * 1000);
-  const refreshableUntilDate = new Date(
-    now.getTime() + refreshExpiresInSecs * 1000,
-  );
+  let payload: { id: string; type: string };
+  try {
+    payload = jwt.verify(body.refresh_token, MyGlobal.env.JWT_SECRET_KEY, {
+      issuer: "autobe",
+    }) as { id: string; type: string };
+  } catch {
+    throw new Error("Invalid or expired refresh token");
+  }
+  // Validate payload structure explicitly
+  if (
+    typeof payload !== "object" ||
+    payload == null ||
+    typeof payload.id !== "string" ||
+    payload.type !== "user"
+  ) {
+    throw new Error("Malformed refresh token payload");
+  }
 
-  // 2. Create a new access and refresh token (JWT)
-  const accessPayload = {
-    id: session.user.id,
-    type: "user" as const,
-  };
-  const access = jwt.sign(accessPayload, MyGlobal.env.JWT_SECRET_KEY, {
-    expiresIn: tokenExpiresInSecs,
-    issuer: "autobe",
+  const user = await MyGlobal.prisma.todo_list_user.findUnique({
+    where: { id: payload.id },
   });
-  const refresh = jwt.sign(
-    { session_token: session.session_token },
+  if (!user) {
+    throw new Error("User not found for provided refresh token");
+  }
+
+  const now = Date.now();
+  const accessExpSec = 30 * 60; // 30 minutes
+  const refreshExpSec = 30 * 24 * 60 * 60; // 30 days
+  const accessExp = now + accessExpSec * 1000;
+  const refreshExp = now + refreshExpSec * 1000;
+
+  const accessToken = jwt.sign(
+    { id: user.id, type: "user" },
     MyGlobal.env.JWT_SECRET_KEY,
     {
-      expiresIn: refreshExpiresInSecs,
+      expiresIn: accessExpSec,
+      issuer: "autobe",
+    },
+  );
+  const refreshToken = jwt.sign(
+    { id: user.id, type: "user" },
+    MyGlobal.env.JWT_SECRET_KEY,
+    {
+      expiresIn: refreshExpSec,
       issuer: "autobe",
     },
   );
 
-  // 3. Optionally update session metadata (NO 'updated_at' per schema)
-  await MyGlobal.prisma.todo_list_auth_sessions.update({
-    where: { id: session.id },
-    data: {
-      // e.g. user_agent: context.request.headers['user-agent'] (not available here)
-      // ip_address: context.request.ip (not available here)
-    },
-  });
-
   return {
+    id: user.id,
     token: {
-      access,
-      refresh,
-      expired_at: toISOStringSafe(expiredAtDate),
-      refreshable_until: toISOStringSafe(refreshableUntilDate),
-    },
-    user: {
-      id: session.user.id,
-      email: session.user.email as string & tags.Format<"email">,
-      is_email_verified: session.user.is_email_verified,
-      created_at: toISOStringSafe(session.user.created_at),
+      access: accessToken,
+      refresh: refreshToken,
+      expired_at: toISOStringSafe(new Date(accessExp)),
+      refreshable_until: toISOStringSafe(new Date(refreshExp)),
     },
   };
 }

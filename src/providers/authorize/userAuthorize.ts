@@ -5,14 +5,13 @@ import { jwtAuthorize } from "./jwtAuthorize";
 import { UserPayload } from "../../decorators/payload/UserPayload";
 
 /**
- * Authenticates and authorizes a standard registered user based on JWT token.
- * - Verifies token
- * - Checks role type
- * - Ensures user exists and is active (not soft-deleted)
- *
- * @param request HTTP request with Authorization header
- * @returns UserPayload with ID and type
- * @throws ForbiddenException if not matching user role or not found
+ * Authenticates and authorizes a Todo List user using JWT.
+ * - Verifies JWT token with role check (type === "user")
+ * - Fetches todo_list_user from DB based on payload.id
+ * - Only allows if user exists
+ * @param request Express request with headers (containing Bearer token)
+ * @returns Authenticated UserPayload
+ * @throws ForbiddenException if not enrolled or role mismatched
  */
 export async function userAuthorize(request: {
   headers: {
@@ -25,15 +24,14 @@ export async function userAuthorize(request: {
     throw new ForbiddenException(`You're not ${payload.type}`);
   }
 
-  // User existence validation: soft-deleted (deleted_at != null) users cannot authenticate
-  const user = await MyGlobal.prisma.todo_list_users.findFirst({
+  // Top-level user table is todo_list_user. Payload.id = todo_list_user.id.
+  const user = await MyGlobal.prisma.todo_list_user.findFirst({
     where: {
-      id: payload.id,
-      deleted_at: null
+      id: payload.id // Standalone table, primary key
     },
   });
 
-  if (!user) {
+  if (user === null) {
     throw new ForbiddenException("You're not enrolled");
   }
 

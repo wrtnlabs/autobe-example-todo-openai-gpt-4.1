@@ -1,25 +1,22 @@
 import { tags } from "typia";
 
 export namespace IPage {
-  /**
-   * Pagination information for paginated data responses. Includes navigation
-   * data (page, size, total, max pages) in alignment with the IPage
-   * specification.
-   */
+  /** Page information. */
   export type IPagination = {
-    /** Current page number in this paginated query (starts at 1). */
-    current: number & tags.Type<"int32">;
+    /** Current page number. */
+    current: number & tags.Type<"int32"> & tags.Minimum<0>;
 
-    /** Maximum number of records per page. */
-    limit: number & tags.Type<"int32">;
+    /** Limitation of records per a page. */
+    limit: number & tags.Type<"int32"> & tags.Minimum<0>;
 
-    /** Total number of matching records found for this query. */
-    records: number & tags.Type<"int32">;
+    /** Total records in the database. */
+    records: number & tags.Type<"int32"> & tags.Minimum<0>;
 
     /**
-     * Total number of pages available based on record count and per-page
-     * limit.
+     * Total pages.
+     *
+     * Equal to {@link records} / {@link limit} with ceiling.
      */
-    pages: number & tags.Type<"int32">;
+    pages: number & tags.Type<"int32"> & tags.Minimum<0>;
   };
 }

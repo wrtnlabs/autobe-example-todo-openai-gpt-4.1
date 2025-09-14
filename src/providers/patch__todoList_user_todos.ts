@@ -4,139 +4,136 @@ import typia, { tags } from "typia";
 import { Prisma } from "@prisma/client";
 import { v4 } from "uuid";
 import { toISOStringSafe } from "../util/toISOStringSafe";
-import { ITodoListTodo } from "@ORGANIZATION/PROJECT-api/lib/structures/ITodoListTodo";
-import { IPageITodoListTodo } from "@ORGANIZATION/PROJECT-api/lib/structures/IPageITodoListTodo";
-import { IPage } from "@ORGANIZATION/PROJECT-api/lib/structures/IPage";
+import { ITodoListTodos } from "@ORGANIZATION/PROJECT-api/lib/structures/ITodoListTodos";
+import { IPageITodoListTodos } from "@ORGANIZATION/PROJECT-api/lib/structures/IPageITodoListTodos";
 import { UserPayload } from "../decorators/payload/UserPayload";
 
 /**
- * Paginated, searchable list of the authenticated user's todos from
- * todo_list_todos.
+ * Search, filter, and paginate todo items for the authenticated user.
  *
- * Retrieve a paginated and filtered list of todo items for the authenticated
- * user. This operation queries the todo_list_todos table, strictly limiting
- * results to the caller's own records in compliance with the application's
- * ownership enforcement policies. Multiple search capabilities are
- * available—sort by due date or creation time, filter by completion status
- * (complete, incomplete, all), and search titles via case-insensitive substring
- * matching.
+ * This endpoint enables registered users to retrieve a paginated, filtered list
+ * of their own todo items from the todo_list_todos table. It supports optional
+ * filtering by completion status, due date, and keyword search in the
+ * title/description. Sorting and pagination options are configurable via the
+ * payload. Only the user's own records are visible; admin privilege is not
+ * supported in this endpoint. All returned fields strictly match the ISummary
+ * DTO and respect schema constraints.
  *
- * Pagination parameters control page size and number, with defaults and limits
- * aligning with business rules (e.g., 20 items per page, up to 100 per page,
- * reasonable maximums applied). If the authenticated user requests a page
- * beyond available results, an empty result set with bounds information is
- * returned. No data from any other user is ever included.
- *
- * Security is paramount: authorization checks ensure only logged-in users can
- * access this endpoint, and all queries are scope-restricted to the user's own
- * todos by user ID. The response contains todo item summaries suitable for list
- * display, with sufficient detail for client navigation and further item
- * interaction.
- *
- * @param props - Request with UserPayload (user) and ITodoListTodo.IRequest
- *   (body)
- * @param props.user - Authenticated user requesting their own todos
- * @param props.body - Filtering, pagination, sorting, and search parameters
- * @returns Paginated list of user's todo item summaries matching query
- *   criteria.
- * @throws {Error} If user is not authorized or not found, or invalid parameters
- *   are provided
+ * @param props - Operation argument
+ * @param props.user - Authenticated user performing the query
+ * @param props.body - Listing, filter, search, sort, and pagination parameters
+ * @returns Paginated summary list of user's own todos matching the criteria
+ * @throws {Error} If query fails or database unavailable
  */
 export async function patch__todoList_user_todos(props: {
   user: UserPayload;
-  body: ITodoListTodo.IRequest;
-}): Promise<IPageITodoListTodo.ISummary> {
+  body: ITodoListTodos.IRequest;
+}): Promise<IPageITodoListTodos.ISummary> {
   const { user, body } = props;
+  const {
+    is_completed,
+    due_date_from,
+    due_date_to,
+    search,
+    sort_by,
+    sort_order,
+    page,
+    limit,
+  } = body;
 
-  // Handle defaults and enforce limits per business rules
-  let page = body.page ?? 1;
-  let limit = body.limit ?? 20;
-  if (page < 1) page = 1;
-  if (limit < 1) limit = 20;
-  if (limit > 100) limit = 100;
+  // -- Pagination
+  const effectiveLimit = Math.max(
+    1,
+    Math.min(typeof limit === "number" ? limit : 20, 100),
+  );
+  const effectivePage = Math.max(1, typeof page === "number" ? page : 1);
+  const skip = (effectivePage - 1) * effectiveLimit;
 
-  // Build Prisma where clause
-  const where = {
-    todo_list_user_id: user.id,
-    ...(body.status === "complete"
-      ? { is_completed: true }
-      : body.status === "incomplete"
-        ? { is_completed: false }
-        : {}),
-    ...(typeof body.search === "string" && body.search.length > 0
-      ? {
-          title: {
-            contains: body.search,
-            mode: "insensitive" as const,
-          },
-        }
-      : {}),
-    ...((body.due_date_after !== undefined && body.due_date_after !== null) ||
-    (body.due_date_before !== undefined && body.due_date_before !== null)
-      ? {
-          due_date: {
-            ...(body.due_date_after !== undefined &&
-            body.due_date_after !== null
-              ? { gte: body.due_date_after }
-              : {}),
-            ...(body.due_date_before !== undefined &&
-            body.due_date_before !== null
-              ? { lte: body.due_date_before }
-              : {}),
-          },
-        }
-      : {}),
-  };
+  // -- Sorting
+  const allowedSorts = ["created_at", "due_date", "is_completed"] as const;
+  const orderField = allowedSorts.includes(sort_by || ("" as any))
+    ? sort_by!
+    : "created_at";
+  const orderDir = sort_order === "asc" ? "asc" : "desc";
 
-  // Choose field to sort by, defaulting per spec
-  const sortBy = body.sort_by === "due_date" ? "due_date" : "created_at";
-  const sortDirection = body.sort_direction === "asc" ? "asc" : "desc";
-
-  // Inline orderBy per core rule
-  const orderBy = {
-    [sortBy]: sortDirection,
-  };
-
-  // Pagination skip (page 1-based)
-  const skip = (page - 1) * limit;
-
-  // Parallel fetch of data and count
+  // -- Filtering inline (NB: no intermediate variables for Prisma operations)
   const [rows, total] = await Promise.all([
     MyGlobal.prisma.todo_list_todos.findMany({
-      where,
-      orderBy,
+      where: {
+        todo_list_user_id: user.id,
+        ...(typeof is_completed === "boolean" && { is_completed }),
+        ...((due_date_from || due_date_to) && {
+          due_date: {
+            ...(due_date_from ? { gte: due_date_from } : {}),
+            ...(due_date_to ? { lte: due_date_to } : {}),
+          },
+        }),
+        ...(search
+          ? {
+              OR: [
+                { title: { contains: search } },
+                { description: { contains: search } },
+              ],
+            }
+          : {}),
+      },
+      orderBy: {
+        [orderField]: orderDir,
+      },
       skip,
-      take: limit,
+      take: effectiveLimit,
+      select: {
+        id: true,
+        title: true,
+        is_completed: true,
+        due_date: true,
+        completed_at: true,
+        created_at: true,
+        updated_at: true,
+      },
     }),
-    MyGlobal.prisma.todo_list_todos.count({ where }),
+    MyGlobal.prisma.todo_list_todos.count({
+      where: {
+        todo_list_user_id: user.id,
+        ...(typeof is_completed === "boolean" && { is_completed }),
+        ...((due_date_from || due_date_to) && {
+          due_date: {
+            ...(due_date_from ? { gte: due_date_from } : {}),
+            ...(due_date_to ? { lte: due_date_to } : {}),
+          },
+        }),
+        ...(search
+          ? {
+              OR: [
+                { title: { contains: search } },
+                { description: { contains: search } },
+              ],
+            }
+          : {}),
+      },
+    }),
   ]);
 
-  // Map Prisma data to summary DTO with date conversions
-  const data = rows.map((row) => {
-    return {
-      id: row.id,
-      title: row.title,
-      is_completed: row.is_completed,
-      due_date:
-        row.due_date !== null && row.due_date !== undefined
-          ? toISOStringSafe(row.due_date)
-          : null,
-      created_at: toISOStringSafe(row.created_at),
-      updated_at: toISOStringSafe(row.updated_at),
-    };
-  });
-
-  // Pagination computation, enforce at least 1 total page
-  const pages = total > 0 ? Math.ceil(total / limit) : 1;
-  const pagination: IPage.IPagination = {
-    current: Number(page),
-    limit: Number(limit),
-    records: Number(total),
-    pages: Number(pages),
-  };
+  // ISummary mapping with strict date formatting and correct optionality
+  const data = rows.map((todo) => ({
+    id: todo.id,
+    title: todo.title,
+    is_completed: todo.is_completed,
+    due_date: todo.due_date ? toISOStringSafe(todo.due_date) : undefined,
+    completed_at: todo.completed_at
+      ? toISOStringSafe(todo.completed_at)
+      : undefined,
+    created_at: toISOStringSafe(todo.created_at),
+    updated_at: toISOStringSafe(todo.updated_at),
+  }));
 
   return {
-    pagination,
+    pagination: {
+      current: Number(effectivePage),
+      limit: Number(effectiveLimit),
+      records: Number(total),
+      pages: Number(Math.ceil(total / effectiveLimit)),
+    },
     data,
   };
 }

@@ -1,85 +1,109 @@
-# Business Requirements for Todo List Application
+# Business Requirements Specification for Todo List Application
 
-This specification details all business requirements, workflows, user objectives, and foundational processes for a minimal yet robust todo management service supporting a single "user" role (no collaboration features). It is designed to be implementation-ready for backend development, using the EARS format for all requirements. All sections are complete, actionable, and free of vague language or technical implementation details such as schema or API.
+## Requirement Writing Guidelines
 
-## Feature List and Priorities
+All requirements in this document:
+- Are written for backend developers to implement the minimum functional todo management system
+- Use the EARS (Easy Approach to Requirements Syntax) format (WHEN/WHILE/IF/WHERE, THE, SHALL, etc.) wherever applicable
+- Define business goals in English (US), using formal, unambiguous language
+- Describe what the system must do, not how to technically achieve it
+- Cover only minimum, essential required functionality for a todo list
 
-**Minimum Viable Feature Set**
-- Account registration, login, password reset, session management.
-- Todo creation by authenticated users.
-- Secure viewing of all personal todos.
-- Update (edit, mark as complete/incomplete), delete individual todos.
-- Each todo visible and accessible only to its creator.
+## Create Todo Item
 
-**Business Priorities**
-- THE service SHALL ensure user privacy by segregating todos per user account.
-- WHEN users perform todo actions, THE service SHALL provide immediate, unambiguous feedback for success, error, or validation failures.
-- THE service SHALL minimize steps required to create, read, update, and delete todos for maximum productivity.
+- WHEN a registered user submits a new todo item, THE system SHALL create a new todo entry associated with that user.
+- THE system SHALL require the following fields for each todo item at creation: title (required), description (optional), due date (optional), completion status (defaults to incomplete).
+- IF the "title" field is missing or empty, THEN THE system SHALL reject the creation request and return a validation error with a specific message indicating that a title is required.
+- THE system SHALL allow only the authenticated user to create todos for their own account.
+- IF a user attempts to create a todo without being authenticated, THEN THE system SHALL reject the operation and return an unauthorized error.
+- THE system SHALL trim leading and trailing whitespace on the "title" and "description" fields.
+- THE system SHALL limit the "title" to a maximum of 255 characters, and the "description" to 2000 characters.
+- IF the due date is provided, THEN THE system SHALL validate that it is either today or a future date; past dates SHALL be rejected with an appropriate validation error.
+- THE system SHALL set the creation timestamp automatically for each new todo item.
+- WHEN a new todo is created successfully, THE system SHALL return the unique identifier of the todo item to the user.
 
-## Business Processes
+## Edit Todo Item
 
-### Account Lifecycle
-- WHEN a user registers, THE system SHALL require a unique email address and a password that meets business minimums.
-- WHEN a user logs in, THE system SHALL verify credentials and grant an authentication token if valid.
-- WHEN a user requests a password reset, THE system SHALL require a registered email and SHALL send a reset link via email.
-- WHEN a user logs out, THE system SHALL invalidate their authentication session.
-- WHEN a user is inactive for 30 days, THE system SHALL expire their session.
+- WHEN a user submits a request to edit their own todo item, THE system SHALL allow modifications to the title, description, due date, and status fields.
+- IF a user attempts to edit a todo item that does not belong to them (and they are not an admin), THEN THE system SHALL reject the request and return a permission error.
+- THE system SHALL apply the same validation (title required, field lengths, due date rule) as during creation.
+- IF a field is not included in the edit request, THEN THE system SHALL leave the original value unchanged.
+- WHEN a todo is successfully updated, THE system SHALL store the modification timestamp.
 
-### Todo Item Lifecycle
-- WHEN an authenticated user creates a todo, THE system SHALL require a non-empty title (1–255 chars), optional description, and mark status as "incomplete" by default.
-- WHEN a todo is created, THE system SHALL record created and last-modified timestamps in ISO 8601 UTC format.
-- WHEN a user lists todos, THE system SHALL display their own todos only, sorted by most recent creation.
-- WHEN a user updates a todo, THE system SHALL allow updates to title, description, and "completed" status; all changes timestamped.
-- IF a user attempts to delete a todo, THEN THE system SHALL confirm ownership and irreversibly remove it, with instant response.
-- IF a user attempts access to another user's todo, THEN THE system SHALL deny the action and log the attempt for security review.
-- WHEN a user exceeds 500 todos, THE system SHALL prevent creation of new todos and SHALL return an error message explaining the maximum is reached.
-- WHEN marking a todo complete, THE system SHALL add a timestamp for when completion occurred.
+## View Todo List
 
-## Non-functional Requirements
+- WHEN a user requests to view their todo list, THE system SHALL return all todo items associated with that user, sorted by creation date descending (latest first) by default.
+- WHERE an admin requests to view todos, THE system SHALL allow them to view todos created by any user.
+- THE system SHALL return all fields for each todo: id, title, description, due date, completion status, creation timestamp, modification timestamp (if present), and owner (user id).
+- IF an unauthenticated request to view a todo list is made, THEN THE system SHALL reject it with an unauthorized error.
+- THE system SHALL support pagination for viewing todo lists: default page size 20, with a maximum page size of 100.
+- THE system SHALL provide the total count of todos in each paged response.
 
-- THE system SHALL process all todo operations (CRUD) and respond within 2 seconds 95% of the time under standard loads (≤500 todos per user).
-- THE system SHALL maintain 99.9% uptime for all auth and todo features, excluding pre-announced maintenance windows.
-- THE system SHALL store passwords using business-approved, cryptographically secure salted hashing.
-- THE system SHALL prevent any user from accessing another user's data or account details.
-- THE system SHALL restrict todo and account access to the authenticated user only.
-- THE system SHALL treat every add, update, or delete operation as an atomic, all-or-nothing business transaction.
-- THE system SHALL enforce all field-level validation rules strictly: todo title required, 1–255 chars max, description optional, timestamps accurate.
+## Update Todo Status (Complete/Incomplete)
 
-## Business Rules
+- WHEN a user marks a todo item as complete or incomplete, THE system SHALL update the completion status accordingly.
+- IF a user attempts to update the status of a todo item that does not belong to them (and they are not an admin), THEN THE system SHALL reject the operation and return a permission error.
+- WHEN a todo is marked as complete, THE system SHALL record the completion timestamp.
+- WHEN a todo is marked as incomplete, THE system SHALL clear any previously set completion timestamp.
+- THE system SHALL allow only the authenticated user or an admin to perform status updates on a todo.
 
-- THE system SHALL require authentication for all todo-related operations; no guest or unauthenticated actions permitted.
-- THE system SHALL never reveal the existence of unauthorized resource IDs in error messages (e.g., another user's todo).
-- WHEN a password reset, email update, or login failure occurs, THE system SHALL provide only generic error messages to prevent disclosure of private information.
-- IF validation fails (e.g., field too long, not present), THEN THE system SHALL return a validation error specifying the field and rule violated.
-- THE system SHALL allow deletion of any user-owned todo irreversibly; deleted todos are purged and unrecoverable.
-- THE system SHALL not expose any collaboration features or shared lists.
-- THE system SHALL enforce per-user isolation such that only the creator can access their todos.
-- WHEN a user deletes their account, THE system SHALL permanently remove all associated todos and account data (with any regulatory hold period observed by business policy).
-- THE system SHALL permit a user to change account email with verification; pending email changes prevent login until confirmed.
+## Delete Todo Item
 
-## Mermaid Diagram: Todo Core Business Workflow
+- WHEN a user requests to delete their own todo item, THE system SHALL permanently remove the todo item (soft deletion is not required for minimum functionality).
+- IF a user attempts to delete a todo item that does not belong to them (and they are not an admin), THEN THE system SHALL reject the operation and return a permission error.
+- WHEN an admin requests to delete any todo item, THE system SHALL always allow it, regardless of ownership.
+- IF a delete operation is successful, THEN THE system SHALL return a confirmation response.
+- IF a user attempts to delete a non-existent todo item, THEN THE system SHALL return a specific error indicating that the item does not exist.
+
+## Todo List Filtering or Sorting (if any)
+
+- WHERE a user requests to filter todos by completion status (complete, incomplete, or all), THE system SHALL return the filtered list according to the requested status.
+- WHERE a user requests to filter todos by due date (e.g., due today, this week, overdue), THE system SHALL return only todos matching the specified due date filter.
+- WHERE a user requests to sort their todo list by due date or creation date, THE system SHALL return todos sorted by the specified field, ascending or descending as specified.
+- THE system SHALL support combining filtering and sorting, and apply pagination as described in "View Todo List".
+- IF no filter or sort is requested, THEN THE system SHALL apply the default sort (creation date descending, all todos).
+
+## Additional Cross-Sectional Requirements and Business Constraints
+
+- THE system SHALL always enforce permissions according to the roles defined:
+  - Regular users can only access, edit, update, or delete their own todos.
+  - Admins can access, edit, update, or delete any user's todo.
+- IF a required field is missing or malformed for any operation, THEN THE system SHALL return clear, actionable validation errors.
+- WHILE a backend operation is processing (creation, update, delete), THE system SHALL respond within 2 seconds under normal load conditions.
+- IF the system cannot respond within 2 seconds, THEN THE system SHALL log the delay for administrative review.
+- THE system SHALL never expose user passwords or authentication tokens in any todo operation response.
+- IF an internal error occurs during any todo operation, THEN THE system SHALL return a generic error message and SHALL NOT expose sensitive internal details.
+
+## Sample Requirements Table (Reference)
+
+| Operation                | Who Can Perform      | Success Criteria / Validations                              |
+|-------------------------|---------------------|-------------------------------------------------------------|
+| Create Todo             | Authenticated user  | Title required; length <=255; due date validity             |
+| Edit Todo               | Own/Any (admin)     | Permission check; same validation as create                 |
+| View Todos              | Own/Any (admin)     | Permission check; pagination                                |
+| Update Status           | Own/Any (admin)     | Permission check; status toggling; timestamps               |
+| Delete Todo             | Own/Any (admin)     | Permission check; existence; confirmation                   |
+| Filter/Sort Todos       | Own/Any (admin)     | Filter parameter(s) validation; sorting/pagination applies  |
+
+## Example Workflow Diagram
 
 ```mermaid
 graph LR
-    subgraph "User Authentication"
-      A["Register (Email/Password)"] --> B["Login"]
-      B --> C["Session Active"]
-      C --> D["Logout"]
+    subgraph "Standard User Workflow"
+        A["User Authenticated"] --> B["Create/Edit Todo"]
+        B --> C["View List"]
+        C --> D["Filter/Sort List"]
+        D --> E["Mark Complete/Incomplete"]
+        E --> F["Delete Todo"]
     end
-    subgraph "Todo Management"
-      E["Create Todo"] --> F["View Own Todos"]
-      F --> G["Update Todo"]
-      G --> H["Mark as Complete"]
-      G --> I["Delete Todo"]
+
+    subgraph "Admin Workflow"
+        X["Admin Authenticated"] --> Y["View Any Todo"]
+        Y --> Z["Edit/Delete Any Todo"]
+        Z --> F
     end
-    C --> E
 ```
 
-## Related Documents
-- For detailed authentication logic and session flows, see the [Authentication and Roles Requirements](./05-authentication-and-roles.md).
-- For user-facing error and edge case handling, reference [Error Handling and User Guidance](./07-error-handling.md).
-- For uptime, security, and system operational standards, consult [Non-Functional Requirements](./08-nonfunctional-requirements.md).
+---
 
-## Implementation Note
-
-This requirements analysis specifies business objectives and rules only. All technical implementation decisions—including storage, APIs, database, and technology—are at the exclusive discretion of the development team.
+This document contains only business requirements for core Todo List functions necessary for implementation. All technical design and implementation details are the sole responsibility of the development team.

@@ -5,8 +5,8 @@ import { Singleton } from "tstl";
 import { userAuthorize } from "../providers/authorize/userAuthorize";
 
 /**
- * Parameter decorator that injects the authenticated UserPayload into controller methods.
- * Adds bearer authentication to Swagger documentation.
+ * Parameter decorator for JWT-authenticated user access (role: user).
+ * Injects the authenticated UserPayload into controller methods.
  */
 export const UserAuth =
   (): ParameterDecorator =>
