@@ -1,126 +1,120 @@
 # User Roles and Authentication Requirements for Todo List Application
 
 ## User Role Definitions
-The Todo List application shall support the following user roles:
+The Todo list application defines two primary user roles: **user** and **admin**.
 
-### 1. user
-- **Description:** A registered user who can authenticate, create, view, update, and delete their own todo items.
-- **Responsibilities:**
-  - Manage own todo items (create, view, edit, delete)
-  - Access only personal data and actions
-- **Restrictions:**
-  - Cannot access other users' todo items
-  - Cannot perform administration or moderation
+### Role: user
+- A registered member who can create, read, update, and delete their own todos.
+- Can mark their own todos as complete or incomplete.
+- May view a personal list of their todos.
+- Cannot access or modify other users' data or any administrative settings.
 
-### 2. admin
-- **Description:** A system administrator who can manage user accounts and moderate todos (including deleting inappropriate content).
-- **Responsibilities:**
-  - Full access to all users' todo items
-  - Can delete, modify, or moderate any todo
-  - Manage user accounts (activate, deactivate, delete users)
-- **Restrictions:**
-  - Must not perform non-admin activities as a regular user unless system designates such duality explicitly.
+### Role: admin
+- Has all privileges of a user.
+- Can view any user's todos for maintenance or compliance.
+- Can delete any user's todos for administrative or policy reasons.
+- Can manage service operational settings (e.g., user management, service announcements).
+- Cannot edit or create todos on behalf of another user (unless specified for business recovery).
 
+## Permissions and Restrictions
 
-## Authentication and Registration Flows
-Authentication shall be mandatory for all users except where specified (such as registration or public onboarding). Authentication shall be based on JWT (JSON Web Tokens) and involve the following key processes:
+### General Principle
+THE system SHALL enforce strict, role-based access control for all core business actions, with no overlap in data manipulation between users and administrative tasks, except where specified for admin intervention.
 
-### Registration (Sign Up)
-- WHEN a prospective user submits a valid email and password, THE system SHALL create a user account and issue a verification email.
-- IF registration input is invalid (email format failed, password too weak), THEN THE system SHALL reject the registration and return a clear, actionable error message.
+### User (user role)
+- THE user SHALL be able to create new todo items for their own account.
+- WHEN user creates a todo, THE system SHALL associate the todo ONLY with that user.
+- THE user SHALL be able to list, view, edit, and delete only their own todos.
+- IF a user tries to access or modify another user's data, THEN THE system SHALL deny access and provide a clear error message.
+- THE user SHALL be able to log in, log out, recover a lost password, and manage their own session.
+- THE user SHALL NOT access service-wide settings or other users' data.
 
-### Login (Sign In)
-- WHEN a user submits their registered email and password, THE system SHALL validate the credentials and issue JWT tokens (access and refresh).
-- IF authentication fails (invalid credentials, deactivated user), THEN THE system SHALL return an authentication failure message.
-- WHILE a user is authenticated, THE system SHALL allow access to authorized resources within permitted actions per role.
+### Admin (admin role)
+- THE admin SHALL have all capabilities of a user as described above.
+- THE admin SHALL be able to list, view, and delete any user's todos. This action SHALL be used only for legitimate administrative or compliance purposes.
+- WHEN deleting another user's todo, THE admin SHALL trigger a logging process for audit and traceability.
+- THE admin SHALL be able to manage operational configurations, such as announcements, user status changes, and access restrictions.
+- THE admin SHALL NOT create or edit todos for other users except in explicit business recovery cases (such as restoring data after failure), which SHALL be documented and logged.
 
-### Email Verification
-- WHEN a new user registers, THE system SHALL send a verification email containing a unique link.
-- WHEN the user confirms their email via the verification link, THE system SHALL activate the account and allow sign-in.
-- IF unverified, THEN THE system SHALL restrict login and all privilege-granting actions.
+## Authentication Requirements
 
-### Password Reset
-- WHEN a user initiates a password reset, THE system SHALL send a secure reset link to the user’s registered email.
-- WHEN the user accesses the reset link and enters a valid new password, THE system SHALL update the password and notify the user.
+### Registration Process
+- THE system SHALL allow new users to register using a valid email address and password.
+- WHEN a user registers, THE system SHALL verify that the provided email is unique and not previously registered.
+- THE system SHALL provide a mechanism for the user to verify their email (e.g., via a time-limited verification code).
+- IF registration fails due to already used email, THEN THE system SHALL display a business-level error message.
 
-### Logout
-- WHEN a user requests logout, THE system SHALL invalidate the session token and prevent further access until the next login.
+### Login and Session Management
+- THE user SHALL be able to authenticate using their registered credentials (email and password).
+- WHEN login is successful, THE system SHALL generate an authentication token (see Token Management section) and initiate a new session for the user.
+- THE system SHALL prevent login attempts with invalid credentials.
+- IF a login attempt fails, THEN THE system SHALL show a clear, business-appropriate error message (e.g., "Invalid email or password").
+- THE system SHALL allow the user to log out at any time, invalidating any active session(s).
 
-### Session Expiry
-- WHEN a JWT access token expires, THE system SHALL reject requests and prompt the user to use a refresh token to renew the session or require re-authentication if the refresh token is expired.
+### Password and Account Management
+- THE system SHALL provide a secure password reset process, using either a time-limited code or secure email link.
+- WHEN a user requests a password reset, THE system SHALL send the appropriate verification to the user's registered email.
+- IF the password reset link or code is expired or invalid, THEN THE system SHALL prevent reset and inform the user.
+- THE user SHALL be able to change their password from their account settings.
+- THE user SHALL be able to revoke all active sessions if compromised.
 
-### Multiple Devices
-- WHERE a user logs in from multiple devices, THE system SHALL maintain separate sessions per device and allow users to revoke specific sessions.
+### Account Integrity
+- THE system SHALL ensure that email-verification status is required before allowing full user functionality (e.g., creating todos).
+- THE system SHALL not authorize dormant, deactivated, or deleted accounts.
 
+## Role Hierarchy and Permission Matrix
 
-## Role-based Access Control Models
-Role-based permissions SHALL enforce the following control boundaries:
+The roles are strictly hierarchical: admin > user. Admin inherits all user permissions, with additional administrative capabilities as specified.
 
-### user Role
-- WHEN authenticated as user, THE system SHALL restrict data and operations to those owned or created by the authenticated user.
-- IF a user attempts to access or modify data belonging to another user, THEN THE system SHALL deny access and log the attempt.
+| Action                                                    | user | admin |
+|-----------------------------------------------------------|:----:|:-----:|
+| Register                                                  |  ✅  |   ✅  |
+| Log in/out                                                |  ✅  |   ✅  |
+| Create own todo                                           |  ✅  |   ✅  |
+| View own todos                                            |  ✅  |   ✅  |
+| Edit own todos                                            |  ✅  |   ✅  |
+| Delete own todos                                          |  ✅  |   ✅  |
+| Mark own todo completed/incomplete                        |  ✅  |   ✅  |
+| View other users' todos                                   |  ❌  |   ✅  |
+| Delete other users' todos                                 |  ❌  |   ✅  |
+| Manage service settings, announcements, or configurations |  ❌  |   ✅  |
+| Manage users                                              |  ❌  |   ✅  |
+| Restore or recover user data (in special cases)           |  ❌  |   ✅  |
 
-### admin Role
-- WHEN authenticated as admin, THE system SHALL permit view, update, and delete operations on any user's todos, as well as user account management.
-- WHEN admin performs moderation (e.g. deleting inappropriate todos), THE system SHALL log the action for compliance and auditing.
+## JWT and Token Management
 
-### General Access Rules
-- THE system SHALL prohibit all unauthenticated access to any todo management or user data features.
-- WHERE role elevation is attempted (user tries to act as admin), THE system SHALL reject the action.
+- THE system SHALL use JWT (JSON Web Token) for authentication and user session management.
+- WHEN a user logs in, THE system SHALL issue a JWT access token (valid for 15–30 minutes) and a refresh token (valid for up to 30 days).
+- THE JWT payload SHALL contain userId, role, and permissions array. No password or sensitive information SHALL be included.
+- THE system SHALL verify JWT authenticity for every API call that requires authentication, denying access otherwise.
+- THE system SHALL have a process for revoking tokens upon user logout or in case of a security incident (e.g., token compromise).
+- WHERE a refresh token is used, THE system SHALL issue a new access token only after validating the refresh token and ensuring the session is still valid and the account is active.
+- THE JWT secret or signing key SHALL be securely managed and must not be exposed via configuration endpoints.
 
+## Business Rules and Security (EARS Format)
+- WHEN a non-authenticated user attempts to access a protected resource, THE system SHALL deny the request and return a business-oriented error message.
+- WHEN a token is expired or invalid, THE system SHALL prompt the user to log in again.
+- WHEN an admin performs any action affecting another user's data, THE system SHALL log the action for audit purposes.
+- IF a user attempts any prohibited operation per their role (e.g., deleting another user's todo), THEN THE system SHALL prevent the action and provide a clear, business-level error message.
+- WHILE a user is logged in and authenticated, THE system SHALL validate the session token on every privileged request.
 
-## Permissions Matrix
-| Action                        | user | admin |
-|-------------------------------|:----:|:-----:|
-| Register Account              | ✅   | ✅    |
-| Login/Logout                  | ✅   | ✅    |
-| Verify Email                  | ✅   | ✅    |
-| Reset Password                | ✅   | ✅    |
-| View Own Todos                | ✅   | ✅    |
-| Create Todo                   | ✅   | ✅    |
-| Edit Own Todo                 | ✅   | ✅    |
-| Delete Own Todo               | ✅   | ✅    |
-| View All Users' Todos         | ❌   | ✅    |
-| Edit Any Todo                 | ❌   | ✅    |
-| Delete Any Todo               | ❌   | ✅    |
-| Manage User Accounts          | ❌   | ✅    |
-| Moderate Inappropriate Todos  | ❌   | ✅    |
-
-Legend: ✅ Permitted, ❌ Not Permitted
-
-
-## Token Management and Session Policies
-- THE system SHALL use JWT for both access tokens and refresh tokens in all authentication workflows.
-- THE access token SHALL expire within 30 minutes of issuance.
-- THE refresh token SHALL expire within 30 days of issuance.
-- WHEN a token is revoked (e.g., manual logout or security incident), THE system SHALL immediately invalidate it and block further use.
-- THE JWT payload for each token SHALL include: userId, role, issued-at (iat), expiration (exp), and a permissions array reflecting current role assignments.
-- Sensitive operations (e.g., password reset, admin moderator actions) SHALL require a fresh access token validated within the last 5 minutes.
-- Forceful session revocation SHALL be available for both self-initiation by users and admin-driven actions in the event of suspicious activity.
-
-
-## Example Authentication Flow Diagram
+## Example Authentication and Authorization Flow (Mermaid Diagram)
 ```mermaid
 graph LR
-    A["User Registration"] --> B["Email Verification"]
-    B --> C{"Is Email Verified?"}
-    C -->|"Yes"| D["Account Activation"]
-    C -->|"No"| E["Prompt for Verification"]
-    D --> F["Login" ]
-    F --> G{"Credentials Correct?"}
-    G -->|"Yes"| H["Generate JWT Tokens"]
-    G -->|"No"| I["Show Login Error"]
-    H --> J["Access Protected Resources"]
-    J --> K["Session Expiration or Logout"]
-    K --> L["Re-authenticate or Refresh Token"]
+A["User Registers"] --> B["Email Verification"]
+B --> |"Verified"| C["Login"]
+C --> D["JWT Issued (Access/Refresh)"]
+D --> E["Access API (e.g., Get Todos)"]
+E --> F{"Has Permission?"}
+F -->|"Yes"| G["Action Allowed"]
+F -->|"No"| H["Show Error Message"]
+G --> I["Action Completed"]
+H --> J["Access Denied"]
+C --> K["Logout"]
+K --> L["Revoke Token"]
 ```
 
-## Security and Compliance Notes
-- All authentication tokens SHALL be transmitted securely using HTTPS only.
-- Tokens stored in httpOnly cookies or secure storage as recommended by best practice.
-- Audit logs SHALL capture all authentication, session, and admin actions for compliance.
-- THE system SHALL enforce rate limiting and lockout on repeated failed login attempts.
-
----
-
-> *Developer Note: This document defines business requirements only. All technical implementations (architecture, APIs, database design, etc.) are at the discretion of the development team.*
+## Compliance and Best Practices
+- THE system SHALL never expose authentication errors in a way that leaks internals or enables user enumeration.
+- All actions affecting cross-user data SHALL be securely logged for business audit and compliance.
+- All requirements above focus on business rules—technical implementation, APIs, and data stores are defined at developer discretion.

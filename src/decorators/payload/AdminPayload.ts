@@ -1,15 +1,15 @@
 import { tags } from "typia";
 
 /**
- * Admin JWT payload interface.
+ * JWT payload for admin role authentication.
  *
- * - Id: Admin's UUID (primary key of todo_list_admin).
- * - Type: Discriminator, always "admin".
+ * - Id: Top-level admin table ID (todo_list_admins.id)
+ * - Type: Discriminator for admin role
  */
 export interface AdminPayload {
-  /** Admin unique identifier (top-level principal for admin role) */
+  /** Top-level admin table ID (todo_list_admins.id) */
   id: string & tags.Format<"uuid">;
 
-  /** Discriminator for role type. */
+  /** Discriminator for the admin role */
   type: "admin";
 }

@@ -6,34 +6,41 @@ import { NestiaSimulator } from "@nestia/fetcher/lib/NestiaSimulator";
 import { ITodoListUser } from "../../../structures/ITodoListUser";
 
 /**
- * Register a new todo_list_user account and issue authentication tokens.
+ * Register a new user account in todo_list_users and provision JWT tokens
+ * (role: user).
  *
- * This registration endpoint allows users to sign up for the Todo List
- * application by providing a unique email address and password. The process
- * creates a record in the todo_list_user table, which is the main actor entity
- * representing all regular users and owners of todo items.
+ * This API operation allows creation of a new user account for the regular user
+ * role, referencing the todo_list_users table in the Prisma schema. The join
+ * operation enables end users to register with their email and password,
+ * provided fields are unique and conform to database constraints.
  *
- * Registration utilizes the 'email' as the core identifier, enforcing
- * uniqueness as per schema constraints. Passwords submitted are hashed and
- * stored in the 'password_hash' column, ensuring no plain text passwords are
- * ever persisted or exposed in responses, aligning with security requirements.
+ * The handler validates the email is not already present in
+ * todo_list_users.email, checks that the password_hash meets required security
+ * standards, and initializes the status field (for instance 'active') according
+ * to business logic. Upon registration, only defined table fields such as
+ * email, password_hash, name (optional), and status are stored—no extraneous
+ * data is accepted. Errors arising from unique constraint violations or
+ * required field omissions are surfaced with business-appropriate messages.
  *
- * Role-based business logic restricts this operation to unauthenticated clients
- * only. Permissions enforce that already-registered (authenticated) users are
- * blocked from accessing this operation for themselves, promoting
- * single-account policy by design.
+ * The operation is only accessible to users not currently authenticated.
+ * Registration success results in issuing a JWT access token plus a refresh
+ * token, encoding user id from todo_list_users.id and assigning the "user"
+ * role. The response conforms to the ITodoListUser.IAuthorized DTO format. Any
+ * edge cases, such as attempting to register with a deactivated, suspended, or
+ * previously soft-deleted email, are handled in accordance with the current
+ * value of the deleted_at and status columns in todo_list_users.
  *
- * Upon successful registration, initial JWT access/refresh tokens are provided,
- * granting full authenticated session rights matching the 'user' role, as
- * allowed in the permissions matrix.
- *
- * This endpoint is tightly coupled with the login and token refresh operations,
- * forming the core user account lifecycle. All error handling around
- * uniqueness, validation, and secure storage is derived directly from the
- * todo_list_user schema fields.
+ * This endpoint is foundational for onboarding, integrating directly with the
+ * login, refresh, and password management endpoints within the user
+ * authentication flow. If registration is unsuccessful, the operation does not
+ * leak details about which field(s) caused failure beyond standard error
+ * handling. It is closely related to the todo_list_users Prisma DB model and
+ * must align with all its business documentation.
  *
  * @param props.connection
- * @param props.body Registration information for a new user (email, password).
+ * @param props.body Information required to create a new user account (email,
+ *   password_hash, optional name/avatar for profile, initial status as per
+ *   business logic).
  * @setHeader token.access Authorization
  *
  * @path /auth/user/join
@@ -68,7 +75,11 @@ export async function join(
 }
 export namespace join {
   export type Props = {
-    /** Registration information for a new user (email, password). */
+    /**
+     * Information required to create a new user account (email,
+     * password_hash, optional name/avatar for profile, initial status as
+     * per business logic).
+     */
     body: ITodoListUser.IJoin;
   };
   export type Body = ITodoListUser.IJoin;
@@ -116,32 +127,34 @@ export namespace join {
 }
 
 /**
- * Authenticate a todo_list_user and issue new tokens.
+ * Authenticate a user from todo_list_users, issue new JWT session tokens (role:
+ * user).
  *
- * Authenticates a registered Todo List user by verifying submitted email and
- * password credentials against the todo_list_user table. Matches the supplied
- * email, then compares the provided password (after hashing) with the stored
- * password_hash. Authentication success results in the issuance of JWT access
- * and refresh tokens compliant with session policies for the 'user' role.
+ * This operation enables existing registered users to authenticate to the todo
+ * list application via email and password, as stored in the todo_list_users
+ * table. The system hashes the supplied password and matches it against
+ * todo_list_users.password_hash for the email record. Logins are allowed only
+ * for users with status indicating active account and a null value for
+ * deleted_at. On a successful login, new JWT access and refresh tokens are
+ * generated as specified by business rules, with the user id and "user" role
+ * included in tokens. The last_login_at field is updated to the present time
+ * for audit and security tracking.
  *
- * All fields handled map directly to the todo_list_user table—primarily 'email'
- * and 'password_hash' (used internally). Authentication tokens returned are
- * constructed without exposing any sensitive fields or database identifiers.
+ * If authentication fails, the system returns a standard login error message,
+ * never exposing which field—email or password—caused failure. Error reporting
+ * follows business guidelines and must not enable user enumeration attacks. The
+ * system checks only real schema fields (email, password_hash, status,
+ * deleted_at).
  *
- * Role-based business logic ensures this operation is available only to
- * unauthenticated users. Existing sessions must be invalidated or expired
- * before invoking login again.
- *
- * Security is paramount: rate limiting may be applied to repeated failed
- * attempts per system policy (not encoded in this schema). All error returns
- * are generic, never indicating which field was incorrect, to minimize
- * information leakage.
- *
- * This login operation is the required companion to join (registration) and
- * refresh (token renewal) for complete account/session lifecycle management.
+ * Successful logins enable access to all authorized API endpoints for the user
+ * role. This operation seamlessly connects to related endpoints such as
+ * refresh, password-reset (if implemented), and general user session
+ * management. It is always consistent with the todo_list_users schema and omits
+ * extraneous logic or fields.
  *
  * @param props.connection
- * @param props.body Login credentials for existing user (email, password).
+ * @param props.body User login credentials: email address and raw password (to
+ *   be hashed before comparison).
  * @setHeader token.access Authorization
  *
  * @path /auth/user/login
@@ -176,7 +189,10 @@ export async function login(
 }
 export namespace login {
   export type Props = {
-    /** Login credentials for existing user (email, password). */
+    /**
+     * User login credentials: email address and raw password (to be hashed
+     * before comparison).
+     */
     body: ITodoListUser.ILogin;
   };
   export type Body = ITodoListUser.ILogin;
@@ -224,35 +240,30 @@ export namespace login {
 }
 
 /**
- * Refresh JWT tokens for a todo_list_user session.
+ * Renew JWT session tokens for a user by validating a refresh token against
+ * todo_list_users.
  *
- * This token refresh endpoint provides authenticated Todo List users a means to
- * renew their session by presenting a valid refresh token issued during
- * previous login or registration. It validates the refresh token, confirms its
- * association with an existing todo_list_user, and, if valid and unexpired,
- * issues a new set of access and refresh tokens for seamless session
- * continuation.
+ * This API operation allows registered user accounts to renew their JWT session
+ * using a valid refresh token referencing an active record in todo_list_users.
+ * The handler extracts and verifies the token, checks the status and ensures
+ * deleted_at is null for the related user, then issues a fresh JWT
+ * access/refresh token pair. If the token is expired, revoked, or references an
+ * ineligible account (wrong status or soft-deleted), errors are reported per
+ * business rules.
  *
- * Token logic is implemented per security and session policy: access tokens are
- * short-lived (30 minutes), while refresh tokens may be valid up to 30 days,
- * conforming to the requirements in the business documentation and permission
- * matrix.
+ * Only fields actually defined in the schema (status, deleted_at, etc.) are
+ * used for account checks. Upon a successful refresh, the service updates the
+ * last_login_at if specified in application logic. No credentials are required
+ * in the request; all context comes from the presented refresh token.
  *
- * The token refresh process is stateless regarding the underlying
- * todo_list_user schema; it does not alter, create, or remove table records. It
- * simply reads and verifies minimal identifying fields linked to the user's
- * identity. No sensitive info is returned.
- *
- * Security and session enforcement is maintained: expired, invalid, or tampered
- * tokens result in error responses and session invalidation, supporting robust
- * access control.
- *
- * This operation is required to maintain authenticated user workflows,
- * supporting login and join (registration) as the main entry points for session
- * initialization.
+ * This operation is related to login, join, and any password/session management
+ * flows, forming the core of the user's ongoing authentication lifecycle. Only
+ * operations present in todo_list_users, including necessary validation fields,
+ * are referenced.
  *
  * @param props.connection
- * @param props.body Refresh token for session renewal process.
+ * @param props.body Valid JWT refresh token referencing a todo_list_users
+ *   account for session renewal.
  * @setHeader token.access Authorization
  *
  * @path /auth/user/refresh
@@ -287,7 +298,10 @@ export async function refresh(
 }
 export namespace refresh {
   export type Props = {
-    /** Refresh token for session renewal process. */
+    /**
+     * Valid JWT refresh token referencing a todo_list_users account for
+     * session renewal.
+     */
     body: ITodoListUser.IRefresh;
   };
   export type Body = ITodoListUser.IRefresh;

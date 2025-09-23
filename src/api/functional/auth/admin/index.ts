@@ -6,37 +6,27 @@ import { NestiaSimulator } from "@nestia/fetcher/lib/NestiaSimulator";
 import { ITodoListAdmin } from "../../../structures/ITodoListAdmin";
 
 /**
- * Register a new admin account (todo_list_admin table).
+ * Registers a new administrator in the todo_list_admins table.
  *
- * This API operation allows for the creation of a new admin account in the Todo
- * List application, using the 'todo_list_admin' table as its persistent store.
- * The endpoint is intended as the main entry point for onboarding
- * administrators who will oversee user management, todo moderation, and enforce
- * business compliance.
+ * This endpoint registers a new administrator account by creating a record in
+ * the todo_list_admins table. Email uniqueness is enforced by the @@unique
+ * constraint. The password_hash field must contain a securely hashed password.
+ * Optional fields, such as name and avatar_uri, may be set by the admin upon
+ * creation. The status field controls active/inactive state. Upon successful
+ * join, an authentication token (JWT) is issued that includes privileges from
+ * the privilege_level and status fields. Security ensures emails cannot be
+ * enumerated, and only valid registration requests are accepted. If
+ * registration fails due to constraint violation (e.g., email reuse), the
+ * operation returns a business-level error with no sensitive detail.
  *
- * Account creation requires input fields for a unique 'email' and a securely
- * hashed 'password_hash', both enforced at the database and application layers
- * for unique constraint and non-reversible security, respectively. The admin
- * registration flow is independent from ordinary user account management,
- * providing role isolation for privileged operations.
- *
- * Timestamps for 'created_at' and 'updated_at' are set automatically on the
- * backend for audit logs and compliance traceability, as indicated by the
- * schema.
- *
- * Security considerations include strict uniqueness checks on 'email', the
- * requirement that passwords are never stored or returned in plain text, and
- * awareness that admin accounts created require further protection (e.g.,
- * protected enrollment, invitation, or separate admin channel) in production
- * deployments.
- *
- * This operation is related to admin authentication and the admin login
- * endpoint and is required as a precursor for 'admin login' and token refresh
- * workflows.
+ * This endpoint is public-facing, and account creation is allowed until
+ * registration policies change. Further admin authentication uses the
+ * credentials established here. Password reset and privilege escalation require
+ * additional operations. All admin-centric onboarding flows reference this join
+ * endpoint for initial registration.
  *
  * @param props.connection
- * @param props.body Admin registration information (unique email, password
- *   hash).
+ * @param props.body Details for creating a new administrator account.
  * @setHeader token.access Authorization
  *
  * @path /auth/admin/join
@@ -71,10 +61,10 @@ export async function join(
 }
 export namespace join {
   export type Props = {
-    /** Admin registration information (unique email, password hash). */
-    body: ITodoListAdmin.ICreate;
+    /** Details for creating a new administrator account. */
+    body: ITodoListAdmin.IJoin;
   };
-  export type Body = ITodoListAdmin.ICreate;
+  export type Body = ITodoListAdmin.IJoin;
   export type Response = ITodoListAdmin.IAuthorized;
 
   export const METADATA = {
@@ -119,33 +109,26 @@ export namespace join {
 }
 
 /**
- * Authenticate admin with email and password (todo_list_admin table).
+ * Authenticates admin credentials for todo_list_admins. Issues JWT tokens if
+ * valid.
  *
- * This API enables system administrators to authenticate and obtain access
- * tokens in the Todo List application, interacting directly with the
- * persistence layer defined by the 'todo_list_admin' schema. Admins must
- * provide their registered email and correct password, which is hashed and
- * checked against the 'password_hash' field. Successful login provides JWT
- * access and refresh tokens with the admin's identity, role, and permitted
- * session claims.
+ * Authenticates administrator credentials (email, password) against records in
+ * the todo_list_admins table. Requires the email field to match an existing
+ * administrator and the password to validate against the password_hash using a
+ * secure comparison. Successful login issues JWT access and refresh tokens,
+ * with claims constructed from the id, email, privilege_level, and status
+ * fields. Only admin accounts with status indicating active are permitted to
+ * login. If login fails due to incorrect credentials, inactive status, or
+ * account lockout, a safe generic error is returned. Rate limits and lockout
+ * policy may be enforced to prevent brute force attacks.
  *
- * Security practices enforced here include never returning raw password data
- * (all password handling is via hashes) and always auditing authentication
- * attempts using the schema-defined timestamps and audit infrastructure. Login
- * errors cover invalid credentials or non-existent admin accounts.
- *
- * Role-specific session controls are implemented, granting access only to admin
- * endpoints after successful authentication. This process is distinct from user
- * login, targeting only records in 'todo_list_admin'.
- *
- * Session token payloads include admin ID, issued-at and expiry timestamps, and
- * the 'admin' role claim as per business policy.
- *
- * Used in tandem with admin registration ('join') and session refresh endpoints
- * for a complete authentication lifecycle.
+ * This operation is foundational for all secure administrative actions.
+ * Follow-up actions such as password reset, 2FA, or session management are
+ * supported in dedicated endpoints. Logging is used for all admin
+ * authentication events to ensure traceability.
  *
  * @param props.connection
- * @param props.body Admin login credentials (email, password).
+ * @param props.body Administrator login credentials (email & password).
  * @setHeader token.access Authorization
  *
  * @path /auth/admin/login
@@ -180,7 +163,7 @@ export async function login(
 }
 export namespace login {
   export type Props = {
-    /** Admin login credentials (email, password). */
+    /** Administrator login credentials (email & password). */
     body: ITodoListAdmin.ILogin;
   };
   export type Body = ITodoListAdmin.ILogin;
@@ -228,35 +211,21 @@ export namespace login {
 }
 
 /**
- * Refresh admin JWT session tokens using valid refresh token (todo_list_admin).
+ * Refreshes administrator JWT tokens if current credentials are valid
+ * (todo_list_admins).
  *
- * This API operation allows authenticated admins to refresh their access and
- * refresh JWT tokens using a valid, non-expired refresh token, as prescribed by
- * the 'todo_list_admin' Prisma schema. Token rotation is critical to maintain
- * secure privileged access while enforcing session limitations, as required by
- * business compliance policies.
- *
- * The refresh logic uses the admin's identity from the refresh token, validates
- * session eligibility, and issues a new token pair, with no password or
- * credential resubmission needed. Token refresh can only be performed for
- * existing, authenticated admin accounts; no schema fields beyond 'id' and
- * uniqueness constraints are directly referenced in the operation.
- *
- * Expired, revoked, or tampered refresh tokens result in failed authentication
- * and informative business error reporting. New tokens' payload includes admin
- * ID, session timestamps, and 'admin' role as determined from the
- * 'todo_list_admin' table.
- *
- * Token management is integral to the admin authentication workflow, providing
- * session continuity following initial registration ('join') and authentication
- * ('login'). Security includes rate limits, logging, and session integrity
- * checks, with no sensitive credential leakage at any step.
- *
- * This operation complements the admin login flow and is required for secure
- * session renewal and sustained system access.
+ * Enables token refresh for an authenticated administrator using a valid
+ * refresh token. Validates the admin’s identity and session by verifying the
+ * refresh token and the current state of the corresponding admin record in
+ * todo_list_admins. Uses the deleted_at and status fields to determine
+ * eligibility for refresh—accounts marked deleted, locked, or disabled cannot
+ * refresh tokens. New JWT tokens, with claims that reflect the up-to-date
+ * privilege_level and status, are issued to maintain secure admin session
+ * continuity. Audit logs are updated for refresh activity. Errors are returned
+ * for any token or status issue.
  *
  * @param props.connection
- * @param props.body Admin refresh token request payload.
+ * @param props.body Administrator refresh token credentials.
  * @setHeader token.access Authorization
  *
  * @path /auth/admin/refresh
@@ -291,7 +260,7 @@ export async function refresh(
 }
 export namespace refresh {
   export type Props = {
-    /** Admin refresh token request payload. */
+    /** Administrator refresh token credentials. */
     body: ITodoListAdmin.IRefresh;
   };
   export type Body = ITodoListAdmin.IRefresh;

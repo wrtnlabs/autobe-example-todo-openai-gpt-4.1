@@ -5,33 +5,38 @@ import { jwtAuthorize } from "./jwtAuthorize";
 import { AdminPayload } from "../../decorators/payload/AdminPayload";
 
 /**
- * Authenticates and authorizes an admin user via JWT.
- * Ensures the payload matches the `admin` type and the account exists.
+ * Authenticate and authorize admin accounts via JWT.
  *
- * @param request Express HTTP request containing Authorization header
- * @throws ForbiddenException if not admin or unenrolled
- * @returns AdminPayload after successful verification
+ * Verifies JWT tokens for admin role, checks token payload validity, and ensures
+ * the corresponding admin exists and is not soft-deleted or disabled.
+ *
+ * @param request HTTP request object containing authorization header
+ * @returns Authenticated AdminPayload
+ * @throws ForbiddenException if not admin or not enrolled/active
  */
 export async function adminAuthorize(request: {
   headers: {
     authorization?: string;
   };
 }): Promise<AdminPayload> {
+  // Extract and verify the JWT for admin role
   const payload: AdminPayload = jwtAuthorize({ request }) as AdminPayload;
 
   if (payload.type !== "admin") {
     throw new ForbiddenException(`You're not ${payload.type}`);
   }
 
-  // As admin table is standalone, JWT id is admin's id.
-  const admin = await MyGlobal.prisma.todo_list_admin.findFirst({
+  // Validate admin existence and status (using top-level admin id)
+  const admin = await MyGlobal.prisma.todo_list_admins.findFirst({
     where: {
       id: payload.id,
+      deleted_at: null,
+      status: "active"
     },
   });
 
   if (admin === null) {
-    throw new ForbiddenException("You're not enrolled");
+    throw new ForbiddenException("You're not enrolled or not active");
   }
 
   return payload;

@@ -5,13 +5,11 @@ import { jwtAuthorize } from "./jwtAuthorize";
 import { UserPayload } from "../../decorators/payload/UserPayload";
 
 /**
- * Authenticates and authorizes a Todo List user using JWT.
- * - Verifies JWT token with role check (type === "user")
- * - Fetches todo_list_user from DB based on payload.id
- * - Only allows if user exists
- * @param request Express request with headers (containing Bearer token)
- * @returns Authenticated UserPayload
- * @throws ForbiddenException if not enrolled or role mismatched
+ * Authorize function for users. Validates JWT, checks 'user' type, and ensures the user exists and is not deleted or disabled.
+ *
+ * @param request Incoming HTTP request with headers
+ * @returns Authenticated user's payload
+ * @throws ForbiddenException if user is not authenticated, not a 'user', deleted, or status is not 'active'.
  */
 export async function userAuthorize(request: {
   headers: {
@@ -24,10 +22,12 @@ export async function userAuthorize(request: {
     throw new ForbiddenException(`You're not ${payload.type}`);
   }
 
-  // Top-level user table is todo_list_user. Payload.id = todo_list_user.id.
-  const user = await MyGlobal.prisma.todo_list_user.findFirst({
+  // payload.id refers to todo_list_users.id (top-level user ID)
+  const user = await MyGlobal.prisma.todo_list_users.findFirst({
     where: {
-      id: payload.id // Standalone table, primary key
+      id: payload.id,
+      deleted_at: null,
+      status: "active"
     },
   });
 
