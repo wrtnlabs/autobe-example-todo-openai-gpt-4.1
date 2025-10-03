@@ -1,122 +1,85 @@
-import jwt from "jsonwebtoken";
-import { MyGlobal } from "../MyGlobal";
-import typia, { tags } from "typia";
-import { Prisma } from "@prisma/client";
-import { v4 } from "uuid";
-import { toISOStringSafe } from "../util/toISOStringSafe";
 import { HttpException } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
+import jwt from "jsonwebtoken";
+import typia, { tags } from "typia";
+import { v4 } from "uuid";
+import { MyGlobal } from "../MyGlobal";
+import { PasswordUtil } from "../utils/PasswordUtil";
+import { toISOStringSafe } from "../utils/toISOStringSafe";
+
 import { ITodoListAdmin } from "@ORGANIZATION/PROJECT-api/lib/structures/ITodoListAdmin";
+import { IAuthorizationToken } from "@ORGANIZATION/PROJECT-api/lib/structures/IAuthorizationToken";
 
-/**
- * Registers a new administrator in the todo_list_admins table.
- *
- * This endpoint allows public registration of new admin accounts. Enforces
- * unique email, hashes password, sets profile fields, and initializes status
- * and privilege level. If the email is already registered, throws a 409 error.
- * On success, issues JWT-based authorization token and returns a profile DTO as
- * per ITodoListAdmin.IAuthorized.
- *
- * @param props - Object containing registration request body matching
- *   ITodoListAdmin.IJoin (email, password_hash, etc)
- * @returns Admin authorization result (profile plus tokens)
- * @throws {HttpException} If email already registered (409 conflict) or on
- *   internal failure
- */
-export async function postauthAdminJoin(props: {
-  body: ITodoListAdmin.IJoin;
+export async function postAuthAdminJoin(props: {
+  body: ITodoListAdmin.ICreate;
 }): Promise<ITodoListAdmin.IAuthorized> {
-  const now = toISOStringSafe(new Date());
-  const id = v4();
-  const {
-    email,
-    password_hash,
-    name = undefined,
-    avatar_uri = undefined,
-    status = "active",
-    privilege_level = "support",
-  } = props.body;
+  const { email, password } = props.body;
 
-  // 1. Check duplicate email (case sensitive, @@unique on email)
+  // Check for duplicate email
   const exists = await MyGlobal.prisma.todo_list_admins.findUnique({
     where: { email },
+    select: { id: true },
   });
   if (exists) {
-    throw new HttpException(
-      "Email is already registered as administrator",
-      409,
-    );
+    throw new HttpException("Duplicate email: already registered", 409);
   }
 
-  // 2. Hash password
-  const hashedPassword = await MyGlobal.password.hash(password_hash);
+  // Hash password
+  const password_hash = await PasswordUtil.hash(password);
 
-  // 3. Insert new admin record
-  const created = await MyGlobal.prisma.todo_list_admins.create({
+  // Generate IDs, timestamps
+  const id = v4();
+  const now = toISOStringSafe(new Date());
+
+  // Create admin
+  const admin = await MyGlobal.prisma.todo_list_admins.create({
     data: {
       id,
       email,
-      password_hash: hashedPassword,
-      name: name !== undefined ? name : undefined,
-      avatar_uri: avatar_uri !== undefined ? avatar_uri : undefined,
-      status,
-      privilege_level,
+      password_hash,
       created_at: now,
       updated_at: now,
-      // all others are nullable/non-required by schema, omitted
+    },
+    select: {
+      id: true,
+      email: true,
+      created_at: true,
+      updated_at: true,
     },
   });
 
-  // 4. Generate tokens (JWT access and refresh)
-  const accessExpire = new Date(Date.now() + 60 * 60 * 1000); // 1h
-  const refreshExpire = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7d
+  // Token expiry computation
+  const accessTokenExpiresInSeconds = 3600;
+  const refreshTokenExpiresInSeconds = 604800;
+  const accessExpiredAt = toISOStringSafe(
+    new Date(Date.now() + accessTokenExpiresInSeconds * 1000),
+  );
+  const refreshableUntil = toISOStringSafe(
+    new Date(Date.now() + refreshTokenExpiresInSeconds * 1000),
+  );
 
+  // Issue JWT tokens
   const access = jwt.sign(
-    { id: created.id, type: "admin" },
+    { id: admin.id, type: "admin" },
     MyGlobal.env.JWT_SECRET_KEY,
-    { expiresIn: "1h", issuer: "autobe" },
+    { expiresIn: accessTokenExpiresInSeconds, issuer: "autobe" },
   );
   const refresh = jwt.sign(
-    { id: created.id, type: "admin" },
+    { id: admin.id, type: "admin", tokenType: "refresh" },
     MyGlobal.env.JWT_SECRET_KEY,
-    { expiresIn: "7d", issuer: "autobe" },
+    { expiresIn: refreshTokenExpiresInSeconds, issuer: "autobe" },
   );
 
   return {
-    id: created.id,
+    id: admin.id,
+    email: admin.email,
+    created_at: toISOStringSafe(admin.created_at),
+    updated_at: toISOStringSafe(admin.updated_at),
     token: {
       access,
       refresh,
-      expired_at: toISOStringSafe(accessExpire),
-      refreshable_until: toISOStringSafe(refreshExpire),
-    },
-    admin: {
-      id: created.id,
-      email: created.email,
-      name:
-        created.name !== null && created.name !== undefined
-          ? created.name
-          : undefined,
-      avatar_uri:
-        created.avatar_uri !== null && created.avatar_uri !== undefined
-          ? created.avatar_uri
-          : undefined,
-      status: created.status,
-      privilege_level: created.privilege_level,
-      last_admin_action_at:
-        created.last_admin_action_at !== null &&
-        created.last_admin_action_at !== undefined
-          ? toISOStringSafe(created.last_admin_action_at)
-          : undefined,
-      last_login_at:
-        created.last_login_at !== null && created.last_login_at !== undefined
-          ? toISOStringSafe(created.last_login_at)
-          : undefined,
-      created_at: toISOStringSafe(created.created_at),
-      updated_at: toISOStringSafe(created.updated_at),
-      deleted_at:
-        created.deleted_at !== null && created.deleted_at !== undefined
-          ? toISOStringSafe(created.deleted_at)
-          : undefined,
+      expired_at: accessExpiredAt,
+      refreshable_until: refreshableUntil,
     },
   };
 }

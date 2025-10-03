@@ -1,10 +1,10 @@
-/// Application users table. Stores core account/authentication credentials,
-/// registration data, profile fields, and business status for each user.
-/// Used to verify personal identity, manage sessions, and enforce
-/// user-specific business rules. Core relationships: owns many todos (see
-/// {@link todo_list_todos}), is target for logs. Cannot perform privileged
-/// admin actions. Users are independently managed entities representing the
-/// main service customer base.
+/// Registered end-user accounts for the minimal Todo app. Each record
+/// represents a single user allowed to log in, manage only their own todos,
+/// and perform all personal account actions. Emails are unique per table,
+/// and password security is enforced via password_hash field. No admin
+/// permissions given. Creation and update timestamps are included for audit
+/// and compliance. Does not reference todo_list_todos here (reverse
+/// reference handled in todo table).
 ///
 /// @namespace Actors
 /// @author AutoBE - https://github.com/wrtnlabs/autobe
@@ -15,59 +15,36 @@ model todo_list_users {
   /// Primary Key.
   id String @id
   
-  /// User's unique login email address. Used for authentication and
-  /// identification. Must be unique for each user and serve as primary contact
-  /// for registration, password recovery, and notifications.
+  /// User's unique email address for login and identification. Must be unique
+  /// within this table.
   email String
   
-  /// Bcrypt/argon2 hashed password for authentication. NEVER stores plain
-  /// password. Required for user login.
+  /// User password (hashed, never stored in plain text). Required for secure
+  /// authentication.
   password_hash String
   
-  /// Optional user display name for UI and search. Can be empty or null if not
-  /// set by user. Not enforced to be unique.
-  name String?
-  
-  /// Optional field for user's profile/avatar image URL. Useful for
-  /// personalized interfaces. Null if user does not set.
-  avatar_uri String?
-  
-  /// Current account status (e.g., active, locked, disabled). Used for
-  /// lifecycle control, login restriction, or compliance. Business logic
-  /// enforces legal values; implement as string here for flexibility.
-  status String
-  
-  /// Timestamp of user's most recent successful login. Used for security and
-  /// audit. Null if never logged in yet.
-  last_login_at DateTime?
-  
-  /// Record creation time (UTC). Used for audit trail and time-based queries.
+  /// Timestamp when the user account was created (ISO 8601, UTC).
   created_at DateTime
   
-  /// Timestamp of most recent data update to the user record.
+  /// Timestamp when the user account was last updated (ISO 8601, UTC).
   updated_at DateTime
-  
-  /// Soft-deletion timestamp. If not null, user is considered deleted (not
-  /// visible in main listings, subject to compliance retention).
-  deleted_at DateTime?
   
   //----
   // RELATIONS
   //----
   todo_list_todos todo_list_todos[]
-  todo_list_audit_logs todo_list_audit_logs[]
   
   @@unique([email])
   @@index([created_at])
-  @@index([status])
 }
 
-/// Administrator accounts table. Stores admin credentials, authentication,
-/// status, profile, and privileged operational data. Used to manage and
-/// operate all aspects of the Todo List service and review or delete user
-/// todos as necessary. Requires auditability of all administrative actions.
-/// Account is distinct from regular users for business control and
-/// compliance, isolating admin roles from end-user personas.
+/// Administrator accounts for system-wide management of users and todos.
+/// Records here represent authorized admins with full privileges to view,
+/// edit, or delete any todo or user account. Admins log in using a unique
+/// email and their password (hashed). No user role overlap—admins are not
+/// standard users. Minimal fields for authentication and audit. No direct
+/// relation to user or todo tables. Deleted when account is removed (no soft
+/// delete).
 ///
 /// @namespace Actors
 /// @author AutoBE - https://github.com/wrtnlabs/autobe
@@ -78,58 +55,22 @@ model todo_list_admins {
   /// Primary Key.
   id String @id
   
-  /// Administrator's unique login email. For secure privileged access only.
-  /// Must be unique among admin accounts.
+  /// Admin's unique email address for login. Must be unique within this table
+  /// only.
   email String
   
-  /// Hash of admin's password, as in user accounts. For login authentication
-  /// (bcrypt/argon2 hash).
+  /// Admin password hash, required for secure login.
   password_hash String
   
-  /// Administrator's display name for UI, policy, and audit references.
-  /// Nullable if not set but strongly encouraged for logging.
-  name String?
-  
-  /// Optional admin profile/avatar image.
-  avatar_uri String?
-  
-  /// Current admin account status (e.g., active, locked, disabled, suspended).
-  /// Used for controlling access to admin actions; values managed by business
-  /// logic.
-  status String
-  
-  /// Business-defined privilege level (e.g., superadmin, support, auditor).
-  /// Used for assigning different sets of administrative permissions within
-  /// the admin domain.
-  privilege_level String
-  
-  /// Timestamp of the admin's most recent privileged operational action (e.g.,
-  /// delete user todo, set announcement). Used for audit tracking and
-  /// accountability.
-  last_admin_action_at DateTime?
-  
-  /// Timestamp of the administrator's last successful login. Used for security
-  /// and operational auditing.
-  last_login_at DateTime?
-  
-  /// Admin account creation timestamp (UTC). Used for onboarding tracking and
-  /// auditing.
+  /// Admin account creation timestamp.
   created_at DateTime
   
-  /// Most recent update timestamp, for audit and policy enforcement.
+  /// Timestamp of last modification to this admin account.
   updated_at DateTime
-  
-  /// Soft-delete timestamp; if not null, admin account is technically deleted
-  /// or suspended.
-  deleted_at DateTime?
   
   //----
   // RELATIONS
   //----
-  todo_list_audit_logs todo_list_audit_logs[]
-  
   @@unique([email])
-  @@index([privilege_level])
   @@index([created_at])
-  @@index([status])
 }

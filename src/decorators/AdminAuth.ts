@@ -5,10 +5,9 @@ import { Singleton } from "tstl";
 import { adminAuthorize } from "../providers/authorize/adminAuthorize";
 
 /**
- * Decorator for authenticating and authorizing admin JWT in controller handlers.
+ * Parameter decorator for administrator JWT authentication.
  *
- * Injects the authenticated AdminPayload into the decorated parameter. Adds Bearer token
- * security scheme to Swagger docs. Uses a singleton instance for efficiency.
+ * Usage: `@AdminAuth() admin: AdminPayload`
  */
 export const AdminAuth =
   (): ParameterDecorator =>

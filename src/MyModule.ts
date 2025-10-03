@@ -6,7 +6,6 @@ import { TodolistAdminUsersController } from "./controllers/todoList/admin/users
 import { TodolistAdminAdminsController } from "./controllers/todoList/admin/admins/TodolistAdminAdminsController";
 import { TodolistUserTodosController } from "./controllers/todoList/user/todos/TodolistUserTodosController";
 import { TodolistAdminTodosController } from "./controllers/todoList/admin/todos/TodolistAdminTodosController";
-import { TodolistAdminAuditlogsController } from "./controllers/todoList/admin/auditLogs/TodolistAdminAuditlogsController";
 
 @Module({
   controllers: [
@@ -16,7 +15,6 @@ import { TodolistAdminAuditlogsController } from "./controllers/todoList/admin/a
     TodolistAdminAdminsController,
     TodolistUserTodosController,
     TodolistAdminTodosController,
-    TodolistAdminAuditlogsController,
   ],
 })
 export class MyModule {}

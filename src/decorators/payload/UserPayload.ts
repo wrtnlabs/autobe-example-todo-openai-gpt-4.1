@@ -1,15 +1,15 @@
 import { tags } from "typia";
 
 /**
- * Payload injected when a user is authenticated through UserAuth.
+ * Authenticated payload for a regular user.
  *
- * - Id: todo_list_users.id (top-level user identifier)
- * - Type: always 'user' for standard members
+ * - Id: Top-level user ID (todo_list_users.id)
+ * - Type: Always 'user'
  */
 export interface UserPayload {
-  /** Top-level user table ID (unique identifier for the user). */
+  /** Unique identifier for the user account (todo_list_users.id) */
   id: string & tags.Format<"uuid">;
 
-  /** Discriminator for the user role. */
+  /** Discriminator for the user role */
   type: "user";
 }

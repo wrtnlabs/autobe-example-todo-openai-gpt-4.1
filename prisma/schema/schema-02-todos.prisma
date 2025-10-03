@@ -1,10 +1,11 @@
-/// Represents individual tasks (todos) created and owned by users. Each todo
-/// can have content (with a business rule of maximum 255 characters),
-/// optional due date, and a completed status. Only the owner (or an admin)
-/// can view, edit, mark complete/incomplete, or delete each todo. This table
-/// supports per-user task management, access enforcement, and core
-/// productivity operations. Cross-references todo_list_users for ownership
-/// linkage.
+/// Todo list items representing individual user tasks in the minimal Todo
+/// application. Each todo is strictly owned by a single user via the {@link
+/// todo_list_users.id} foreign key. The table stores only essential fields:
+/// task title, completion status, timestamps for creation/update/completion,
+/// and optional soft delete flag (for future extensibility). No labels,
+/// priorities, deadlines, or attachments are included, adhering to strict
+/// minimalism. Admin users may manage all todos via permissions, not via
+/// extra fields.
 ///
 /// @namespace Todos
 /// @author AutoBE - https://github.com/wrtnlabs/autobe
@@ -15,91 +16,37 @@ model todo_list_todos {
   /// Primary Key.
   id String @id
   
-  /// Owner user's {@link todo_list_users.id}. Indicates which user this todo
-  /// belongs to.
+  /// Belonged user's {@link todo_list_users.id}. Enforces ownership and
+  /// enables cascading deletes when user is removed.
   todo_list_user_id String
   
-  /// The textual content of the todo. Maximum 255 characters, trimmed of
-  /// whitespace, must not be empty or only whitespace. Validated business
-  /// rules (no control characters, required).
-  content String
+  /// Todo item label/title. Must be non-empty and max 100 characters, trimmed.
+  /// (Validated in service logic, enforced at application layer.)
+  title String
   
-  /// Optional due date for the todo, null if not set. If present, must be an
-  /// ISO date not before creation date.
-  due_date DateTime?
+  /// Whether the todo item is marked as completed (true) or still active
+  /// (false).
+  is_completed Boolean
   
-  /// Whether the todo has been marked as completed. Defaults to false on
-  /// creation, toggled by user action.
-  completed Boolean
-  
-  /// Timestamp when the todo was marked as completed. Null if not completed.
-  completed_at DateTime?
-  
-  /// When this todo was created.
+  /// Timestamp when the todo item was created. Used for sort and audit.
   created_at DateTime
   
-  /// Timestamp of the last modification to this todo (edit, status change,
-  /// etc).
+  /// Timestamp for most recent modification (description, status change, etc.).
   updated_at DateTime
   
+  /// If completed, timestamp at which the task was marked as done; set to null
+  /// if not completed.
+  completed_at DateTime?
+  
+  /// Soft delete timestamp; if present, item is considered logically deleted
+  /// but not removed from database. Enables future extensibility for
+  /// audit/recovery.
+  deleted_at DateTime?
+  
   //----
   // RELATIONS
   //----
   user todo_list_users @relation(fields: [todo_list_user_id], references: [id], onDelete: Cascade)
   
-  todo_list_audit_logs todo_list_audit_logs[]
-  
-  @@unique([todo_list_user_id, content])
-  @@index([todo_list_user_id, created_at])
-  @@index([todo_list_user_id, completed])
-}
-
-/// Records all admin-initiated actions affecting any user's todos, such as
-/// viewing or deleting a user's todo for compliance or security purposes.
-/// Captures admin username, affected user, target todo, admin action (enum:
-/// 'view', 'delete'), rationale (optional free text), and audit timestamp.
-/// Supports privacy compliance, monitoring, and traceability in accordance
-/// with business and legal policy.
-///
-/// @namespace Todos
-/// @author AutoBE - https://github.com/wrtnlabs/autobe
-model todo_list_audit_logs {
-  //----
-  // COLUMNS
-  //----
-  /// Primary Key.
-  id String @id
-  
-  /// Admin's {@link todo_list_admins.id} who performed the action.
-  todo_list_admin_id String
-  
-  /// Target user's {@link todo_list_users.id} whose todo was affected or
-  /// accessed.
-  todo_list_user_id String
-  
-  /// Target todo's {@link todo_list_todos.id} affected by the admin action.
-  todo_list_todo_id String
-  
-  /// Admin action type on the todo. Enum: 'view', 'delete'.
-  action String
-  
-  /// Optional explanation or justification text for the admin action. Free
-  /// text field; null allowed for non-sensitive actions.
-  rationale String?
-  
-  /// Timestamp when this audit log entry was created.
-  created_at DateTime
-  
-  //----
-  // RELATIONS
-  //----
-  admin todo_list_admins @relation(fields: [todo_list_admin_id], references: [id], onDelete: Cascade)
-  user todo_list_users @relation(fields: [todo_list_user_id], references: [id], onDelete: Cascade)
-  todo todo_list_todos @relation(fields: [todo_list_todo_id], references: [id], onDelete: Cascade)
-  
-  @@index([todo_list_admin_id])
-  @@index([todo_list_todo_id])
-  
-  @@index([todo_list_user_id, created_at])
-  @@index([action])
+  @@index([todo_list_user_id, is_completed])
 }

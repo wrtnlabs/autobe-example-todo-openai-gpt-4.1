@@ -5,11 +5,11 @@ import { jwtAuthorize } from "./jwtAuthorize";
 import { UserPayload } from "../../decorators/payload/UserPayload";
 
 /**
- * Authorize function for users. Validates JWT, checks 'user' type, and ensures the user exists and is not deleted or disabled.
+ * Authenticate and authorize a regular user account via JWT.
  *
- * @param request Incoming HTTP request with headers
- * @returns Authenticated user's payload
- * @throws ForbiddenException if user is not authenticated, not a 'user', deleted, or status is not 'active'.
+ * @param request - Incoming HTTP request object
+ * @returns The decoded UserPayload if JWT and database checks pass
+ * @throws ForbiddenException if role/type mismatch or user does not exist
  */
 export async function userAuthorize(request: {
   headers: {
@@ -22,12 +22,10 @@ export async function userAuthorize(request: {
     throw new ForbiddenException(`You're not ${payload.type}`);
   }
 
-  // payload.id refers to todo_list_users.id (top-level user ID)
+  // Check if the user exists in the database
   const user = await MyGlobal.prisma.todo_list_users.findFirst({
     where: {
       id: payload.id,
-      deleted_at: null,
-      status: "active"
     },
   });
 
